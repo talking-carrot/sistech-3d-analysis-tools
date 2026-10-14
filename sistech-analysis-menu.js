@@ -380,7 +380,12 @@
     say('상세 타일 불러오는 중...');
     const sp = Math.max(5, Math.sqrt(area / 500)); const pre = [];
     for (let x = minx + sp / 2; x < maxx && pre.length < 900; x += sp) for (let y = miny + sp / 2; y < maxy && pre.length < 900; y += sp) if (inside(x, y)) pre.push(carto(C.Matrix4.multiplyByPoint(frame, new C.Cartesian3(x, y, 0), new C.Cartesian3())));
-    if (pre.length) { try { await scene.sampleHeightMostDetailed(pre); } catch (e) {} }
+    if (pre.length) {
+      // sampleHeightMostDetailed 가 응답하지 않고 멈추는 경우가 있어 20초 제한을 둠 (초과 시 지금까지 로드된 타일로 계속 진행)
+      const t0s = performance.now(); let tick = setInterval(() => say('상세 타일 불러오는 중... (' + Math.round((performance.now() - t0s) / 1000) + '초)'), 1000);
+      try { await Promise.race([scene.sampleHeightMostDetailed(pre), new Promise((res) => setTimeout(res, 20000))]); } catch (e) {}
+      clearInterval(tick);
+    }
 
     // (2) 영역과 겹치는 '가장 상세하게 로드된' 타일 수집
     const inter = (t) => { const bs = t.boundingSphere; const c = C.Matrix4.multiplyByPoint(inv, bs.center, new C.Cartesian3()); const dx = Math.max(minx - c.x, 0, c.x - maxx), dy = Math.max(miny - c.y, 0, c.y - maxy); return dx * dx + dy * dy <= bs.radius * bs.radius; };
