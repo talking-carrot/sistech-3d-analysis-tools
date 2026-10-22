@@ -9,6 +9,7 @@
   const CATS = ['균열', '박리·탈락', '누수·백태', '침하·변형', '파손·손상', '오염·식생', '기타'];
   const SEVS = [['경미', '#ffd54f'], ['보통', '#ff9800'], ['심각', '#ff5252']];
   const sevCol = (s) => (SEVS.find((x) => x[0] === s) || SEVS[1])[1];
+  const origList = (s) => (s.origs && s.origs.length) ? s.origs : (s.orig ? [{ name: (s.photo && s.photo.name) || '', url: s.orig, px: s.origPx || [], region: s.origRegion }] : []);
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const projId = () => { const el = document.querySelector('#sis-menu-root select'); return (el && el.value) || 'proj'; };
   const projName = () => { const el = document.querySelector('#sis-menu-root select'); return el && el.selectedOptions[0] ? el.selectedOptions[0].textContent : projId(); };
@@ -105,13 +106,17 @@
       const cur = snapShape(P, it); if (!cur) throw new Error('선택한 위치가 화면에 보이지 않습니다. 화면을 옮겨서 위치가 보이게 한 뒤 다시 저장해 주세요.');
       out.wide = cur.wide;
       if (PH && PH.toggle && PH.state) {
-        photoState = PH.state().shown;
+        photoState = PH.state().shown; let prevRec = null;
+        if (PH.best && PH.activate && PH.lib && PH.lib().length > 1) { const bs2 = PH.best(P, { needFile: true }); if (bs2.length && bs2[0].rec !== PH.active()) { prevRec = PH.active(); st('이 위치가 가장 잘 찍힌 사진으로 바꾸는 중... ' + bs2[0].rec.meta.name); await PH.activate(bs2[0].rec.id, { fly: false }); await sleep(1800); } }
+        if (PH.META) out.photo = { name: PH.META.name, date: PH.fileDate ? PH.fileDate() : '' };
         st('화면 캡처 중... (사진 중첩)'); await PH.toggle(true); await sleep(1800); await waitTiles(8000); const a = snapShape(P, it); if (a) out.zoomPhoto = a.zoom;
         st('화면 캡처 중... (모델만)'); await PH.toggle(false); await sleep(900); await waitTiles(8000); const b = snapShape(P, it); if (b) out.zoomModel = b.zoom;
         await PH.toggle(photoState); await sleep(600);
-        if (PH.cropOriginal) { st('원본 사진에서 잘라내는 중...'); const o = PH.cropOriginal(P, { color: sevCol(it.sev), type: it.type }); if (o) { out.orig = o.url; out.origPx = o.px; out.origRegion = o.region; } }
+        if (prevRec && PH.activate) { try { await PH.activate(prevRec.id, { fly: false }); } catch (e) {} }
+        if (PH.cropAll) { st('원본 사진에서 잘라내는 중...'); const os = await PH.cropAll(P, { color: sevCol(it.sev), type: it.type, max: 3 }); if (os.length) { out.origs = os.map((o) => ({ name: o.name, date: o.date, dist: o.dist, url: o.url, px: o.px, region: o.region })); out.orig = os[0].url; out.origPx = os[0].px; out.origRegion = os[0].region; } }
+        else if (PH.cropOriginal) { st('원본 사진에서 잘라내는 중...'); const o = PH.cropOriginal(P, { color: sevCol(it.sev), type: it.type }); if (o) { out.orig = o.url; out.origPx = o.px; out.origRegion = o.region; } }
       } else { out.zoomModel = cur.zoom; }
-      if (PH && PH.META) { out.photo = { name: PH.META.name, date: PH.fileDate ? PH.fileDate() : '' }; }
+      if (!out.photo && PH && PH.META) { out.photo = { name: PH.META.name, date: PH.fileDate ? PH.fileDate() : '' }; }
     } finally { viewer.entities.show = ents0; viewer.resolutionScale = oldRS; viewer.resize(); if (PH && photoState !== null && PH.state && PH.state().shown !== photoState) { try { await PH.toggle(photoState); } catch (e) {} } }
     return out;
   }
@@ -212,11 +217,11 @@
     const sumRows = Object.keys(cnt).filter((c) => cnt[c].경미 + cnt[c].보통 + cnt[c].심각 > 0).map((c) => '<tr><td>' + esc(c) + '</td><td>' + cnt[c].경미 + '</td><td>' + cnt[c].보통 + '</td><td>' + cnt[c].심각 + '</td><td><b>' + (cnt[c].경미 + cnt[c].보통 + cnt[c].심각) + '</b></td></tr>').join('');
     const listRows = items.map((it, i) => { const g = toLL(anchorOf(it)); return '<tr><td>' + (i + 1) + '</td><td>' + esc(it.cat) + '</td><td>' + badge(it.sev) + '</td><td>' + esc(it.title) + '</td><td>' + sizeText(it) + '</td><td>' + g.lat.toFixed(6) + ', ' + g.lon.toFixed(6) + '</td></tr>'; }).join('');
     const cards = items.map((it, i) => { const g = toLL(anchorOf(it)); const s = it.shots || {}; const imgs = [];
-      if (s.wide) imgs.push(['현재 화면 (위치 표시)', s.wide, 'wide']); if (s.zoomPhoto) imgs.push(['사진 중첩 확대', s.zoomPhoto, '']); if (s.zoomModel) imgs.push([s.zoomPhoto ? '3D 모델만 확대' : '확대', s.zoomModel, '']); if (s.orig) imgs.push(['원본 사진 (원해상도 크롭' + (s.origRegion ? ' · ' + s.origRegion[2] + '×' + s.origRegion[3] + 'px' : '') + ')', s.orig, '']);
+      if (s.wide) imgs.push(['현재 화면 (위치 표시)', s.wide, 'wide']); if (s.zoomPhoto) imgs.push(['사진 중첩 확대', s.zoomPhoto, '']); if (s.zoomModel) imgs.push([s.zoomPhoto ? '3D 모델만 확대' : '확대', s.zoomModel, '']); origList(s).forEach((o) => imgs.push(['원본 사진 ' + (o.name || '') + ' (원해상도 크롭' + (o.region ? ' · ' + o.region[2] + '×' + o.region[3] + 'px' : '') + (o.dist ? ' · 촬영 위치에서 약 ' + Math.round(o.dist) + ' m' : '') + ')', o.url, '']));
       return '<section class="card"><h3><span class="no" style="background:' + sevCol(it.sev) + ';color:' + (it.sev === '경미' ? '#222' : '#fff') + '">' + (i + 1) + '</span> ' + esc(it.title) + ' ' + badge(it.sev) + '</h3>' +
         '<table class="kv"><tr><th>종류</th><td>' + esc(it.cat) + '</td><th>표시 방식</th><td>' + typeName[it.type] + (it.type !== 'point' ? ' · ' + sizeText(it) : '') + '</td></tr>' +
         '<tr><th>위치</th><td colspan="3">위도 ' + g.lat.toFixed(7) + ' · 경도 ' + g.lon.toFixed(7) + ' · 높이 ' + g.h.toFixed(2) + ' m (WGS84 타원체고)</td></tr>' +
-        (s.origPx ? '<tr><th>원본 사진 위치</th><td colspan="3">' + esc((s.photo && s.photo.name) || '') + ' · 픽셀 ' + s.origPx.map((q) => '(' + q.x + ', ' + q.y + ')').join(' → ') + '</td></tr>' : '') +
+        origList(s).map((o) => '<tr><th>원본 사진 위치</th><td colspan="3">' + esc(o.name || '') + ' · 픽셀 ' + (o.px || []).map((q) => '(' + q.x + ', ' + q.y + ')').join(' → ') + '</td></tr>').join('') +
         '<tr><th>점검 내용</th><td colspan="3" class="tx">' + (esc(it.desc) || '-') + '</td></tr><tr><th>조치 의견</th><td colspan="3" class="tx">' + (esc(it.action) || '-') + '</td></tr></table>' +
         '<div class="imgs">' + imgs.map((m) => '<figure class="' + m[2] + '"><img src="' + m[1] + '"><figcaption>' + esc(m[0]) + '</figcaption></figure>').join('') + '</div></section>'; }).join('');
     return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>' + esc(meta.title) + '</title><style>' +
@@ -241,7 +246,7 @@
   function csv() {
     const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; const pi = photoInfo();
     const rows = [['번호', '종류', '정도', '제목', '표시방식', '길이(m)', '면적(m2)', '위도', '경도', '높이(타원체고 m)', '점검 내용', '조치 의견', '원본 사진', '원본 사진 픽셀', '점검일']];
-    items.forEach((it, i) => { const g = toLL(anchorOf(it)); const s = it.shots || {}; rows.push([i + 1, it.cat, it.sev, it.title, typeName[it.type], it.type === 'line' ? it.len.toFixed(3) : '', it.type === 'area' ? it.area.toFixed(3) : '', g.lat.toFixed(7), g.lon.toFixed(7), g.h.toFixed(2), it.desc, it.action, (s.photo && s.photo.name) || (pi && pi.name) || '', s.origPx ? s.origPx.map((a) => a.x + ':' + a.y).join(' ') : '', meta.date]); });
+    items.forEach((it, i) => { const g = toLL(anchorOf(it)); const s = it.shots || {}; rows.push([i + 1, it.cat, it.sev, it.title, typeName[it.type], it.type === 'line' ? it.len.toFixed(3) : '', it.type === 'area' ? it.area.toFixed(3) : '', g.lat.toFixed(7), g.lon.toFixed(7), g.h.toFixed(2), it.desc, it.action, origList(s).length ? origList(s).map((o) => o.name).join(' / ') : ((s.photo && s.photo.name) || (pi && pi.name) || ''), origList(s).map((o) => (o.px || []).map((a) => a.x + ':' + a.y).join(' ')).join(' / '), meta.date]); });
     return '\ufeff' + rows.map((r) => r.map(q).join(',')).join('\r\n');
   }
   function download(name, text, type) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
