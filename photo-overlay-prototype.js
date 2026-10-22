@@ -58,7 +58,20 @@ function applyVis(){ const q=shown&&quadVis; if(prim) prim.show=q&&!(shown&&proj
 async function applyShow(){ if(shown&&projWanted) await projectOn(); else projectOff(); applyVis(); }
 function remove(){ projectOff(); if(prim) scene.primitives.remove(prim); prim=null; ents.forEach(e=>viewer.entities.remove(e)); ents.length=0; }
 S.photo={adj:()=>A, setAdj:(o)=>{ Object.assign(A,o); adjChanged(); }, toggle:async(v)=>{ shown=(v===undefined)?!shown:v; await applyShow(); const el=document.querySelector('#ph-show'); if(el) el.checked=shown; return shown; }, remove, fly, setOpa, build, META, projectOn, projectOff, setProjOpa:(v)=>{projOpa=v;}, get shaders(){return shaders;}, setDist:(d)=>{dist=d; build();}};
+
+S.photo.state=()=>({shown,projWanted,quadVis});
+S.photo.fileDate=()=>{ const m=/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/.exec(META.name); return m? m[1]+'-'+m[2]+'-'+m[3]+' '+m[4]+':'+m[5]+':'+m[6] : ''; };
+// 3D 좌표(ECEF) -> 원본 사진 픽셀. 카메라 뒤쪽이거나 사진 밖이면 null
+S.photo.pixelOf=(p)=>{ const v=C.Cartesian3.subtract(p,camPos,new C.Cartesian3()); const z=C.Cartesian3.dot(v,dir); if(z<=1) return null; const x=C.Cartesian3.dot(v,right), y=C.Cartesian3.dot(v,up); const s=1+A.fov/100; const xn=x/z*s, yn=-y/z*s; const r2=xn*xn+yn*yn; const rad=1+k1*r2+k2*r2*r2+k3*r2*r2*r2; const xd=xn*rad+2*p1*xn*yn+p2*(r2+2*xn*xn), yd=yn*rad+p1*(r2+2*yn*yn)+2*p2*xn*yn; return {x:xd*fx+META.w/2+cxo, y:yd*fx+META.h/2+cyo}; };
+S.photo.cropOriginal=(P3,o)=>{ o=o||{}; const px=P3.map(p=>S.photo.pixelOf(p)); if(px.some(q=>!q)) return null; const xs=px.map(q=>q.x), ys=px.map(q=>q.y); const x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys); if(x1<0||y1<0||x0>META.w||y0>META.h) return null;
+  const cx=(x0+x1)/2, cy=(y0+y1)/2; let w=Math.max(720,(x1-x0)*1.8), h=w*0.75; if(h<(y1-y0)*1.8){ h=(y1-y0)*1.8; w=h/0.75; } w=Math.min(w,META.w); h=Math.min(h,META.h); let rx=Math.min(Math.max(cx-w/2,0),META.w-w), ry=Math.min(Math.max(cy-h/2,0),META.h-h);
+  const OWc=Math.min(960,Math.round(w)); const k=OWc/w; const cv=document.createElement('canvas'); cv.width=OWc; cv.height=Math.round(h*k); const g=cv.getContext('2d'); g.drawImage(bmp,rx,ry,w,h,0,0,cv.width,cv.height);
+  const col=o.color||'#ff5252'; g.lineWidth=Math.max(2,cv.width/240); g.strokeStyle=col; g.fillStyle=col; const q=px.map(a=>[(a.x-rx)*k,(a.y-ry)*k]);
+  if(o.type==='point'){ g.beginPath(); g.arc(q[0][0],q[0][1],cv.width/28,0,7); g.stroke(); g.beginPath(); g.moveTo(q[0][0]-cv.width/18,q[0][1]); g.lineTo(q[0][0]-cv.width/50,q[0][1]); g.moveTo(q[0][0]+cv.width/50,q[0][1]); g.lineTo(q[0][0]+cv.width/18,q[0][1]); g.moveTo(q[0][0],q[0][1]-cv.width/18); g.lineTo(q[0][0],q[0][1]-cv.width/50); g.moveTo(q[0][0],q[0][1]+cv.width/50); g.lineTo(q[0][0],q[0][1]+cv.width/18); g.stroke(); }
+  else { g.beginPath(); q.forEach((a,i)=>i?g.lineTo(a[0],a[1]):g.moveTo(a[0],a[1])); if(o.type==='area') g.closePath(); g.stroke(); }
+  return {url:cv.toDataURL('image/jpeg',0.88), px:px.map(a=>({x:Math.round(a.x),y:Math.round(a.y)})), region:[Math.round(rx),Math.round(ry),Math.round(w),Math.round(h)]}; };
 let panelEl=null;
+for(let i=S.features.length-1;i>=0;i--){ if(S.features[i].id==='photo'){ try{S.features[i].unmount&&S.features[i].unmount();}catch(e){} S.features.splice(i,1);} }
 S.addFeature({id:'photo', icon:'📷', title:'사진', mount(panel){ panelEl=panel; panel.innerHTML='<div style="padding:12px;font-size:13px;line-height:1.55">'+
  '<label style="display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px;cursor:pointer;font-size:14px"><input id="ph-show" type="checkbox" checked style="width:18px;height:18px"> 사진 중첩 표시 (켜기/끄기)</label>'+
  '<div style="color:#c5cae9;font-size:12px;word-break:break-all">'+META.name+'</div>'+
